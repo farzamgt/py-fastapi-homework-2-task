@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import date, timedelta
 from typing import Optional
 
@@ -53,6 +54,8 @@ class MovieListResponseSchema(BaseModel):
     total_pages: int
     total_items: int
 
+    model_config = ConfigDict(from_attributes=True)
+
 
 class MovieCreateRequestSchema(BaseModel):
     name: str = Field(max_length=255)
@@ -67,12 +70,11 @@ class MovieCreateRequestSchema(BaseModel):
     actors: list[str]
     languages: list[str]
 
-    @field_validator("country")
+    @field_validator("date")
     @classmethod
-    def validate_country_code(cls, value: str) -> str:
-        value = value.upper()
-        if not value.isalpha() or len(value) != 3:
-            raise ValueError("Invalid country code")
+    def creation_date_not_too_far(cls, value: date) -> date:
+        if value > date.today() + timedelta(days=365):
+            raise ValueError("Date must not be more than one year in the future")
         return value
 
 
@@ -105,7 +107,7 @@ class MovieUpdateSchema(BaseModel):
     @field_validator("date")
     @classmethod
     def date_not_too_far(cls, value: date) -> date:
-        if value is None:  # short-circuit for partial updates
+        if value is None:
             return value
         if value > date.today() + timedelta(days=365):
             raise ValueError("Date must not be more than one year in the future")

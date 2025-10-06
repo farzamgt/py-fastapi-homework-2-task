@@ -141,11 +141,6 @@ async def create_movie(
         )
 
     country_result = await db.execute(
-        select(CountryModel)
-        .where(CountryModel.code == movie_schema.country)
-    )
-
-    country_result = await db.execute(
         select(CountryModel).where(CountryModel.code == movie_schema.country)
     )
     country = country_result.scalar_one_or_none()
@@ -257,17 +252,14 @@ async def delete_movie(movie_id: int, db: AsyncSession = Depends(get_db)):
     status_code=status.HTTP_200_OK
 )
 async def partial_update_movie(
-        movie_id: int,
-        movie_schema: MovieUpdateSchema,
-        db: AsyncSession = Depends(get_db)
+    movie_id: int,
+    movie_payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db)
 ):
     try:
-        movie_schema = MovieUpdateSchema.model_validate(movie_schema)
+        movie_schema = MovieUpdateSchema.model_validate(movie_payload)
     except ValidationError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid input data."
-        )
+        raise HTTPException(status_code=400, detail="Invalid input data.")
 
     movie = await get_movie_by_id(movie_id, db)
     update_data = movie_schema.model_dump(exclude_unset=True)
