@@ -3,8 +3,10 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
-    status
+    status,
+    Body
 )
+from pydantic import ValidationError
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,16 +50,19 @@ async def get_movies(
         )
 ):
     total_items_result = await db.execute(
-        select(func.count()).select_from(MovieModel)
+        select(func.count(MovieModel.id))
     )
-    total_items = total_items_result.scalar()
+    total_items = total_items_result.scalar_one()
+
     if total_items == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No movies found."
         )
+
     total_pages = (total_items + per_page - 1) // per_page
     offset = (page - 1) * per_page
+
     if offset >= total_items:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -69,6 +74,7 @@ async def get_movies(
         f"{base_url}?page={page - 1}&per_page={per_page}"
         if page > 1 else None
     )
+
     next_page = (
         f"{base_url}?page={page + 1}&per_page={per_page}"
         if page < total_pages else None
@@ -80,6 +86,7 @@ async def get_movies(
         .offset(offset)
         .limit(per_page)
     )
+
     movies = result_movies.scalars().all()
     movie_schemas = [
         MovieListItemSchema.model_validate(movie)
@@ -122,12 +129,24 @@ async def get_movie_by_id(movie_id: int, db: AsyncSession) -> MovieModel:
 
 )
 async def create_movie(
-        movie_schema: MovieCreateRequestSchema,
+        movie_schema: dict = Body(...),
         db: AsyncSession = Depends(get_db)
 ):
+    try:
+        movie_schema = MovieCreateRequestSchema.model_validate(movie_schema)
+    except ValidationError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid input data."
+        )
+
     country_result = await db.execute(
         select(CountryModel)
         .where(CountryModel.code == movie_schema.country)
+    )
+
+    country_result = await db.execute(
+        select(CountryModel).where(CountryModel.code == movie_schema.country)
     )
     country = country_result.scalar_one_or_none()
     if not country:
@@ -138,8 +157,7 @@ async def create_movie(
     genres = []
     for genre_name in movie_schema.genres:
         genre_result = await db.execute(
-            select(GenreModel)
-            .where(GenreModel.name == genre_name)
+            select(GenreModel).where(GenreModel.name == genre_name)
         )
         genre = genre_result.scalar_one_or_none()
         if not genre:
@@ -151,8 +169,7 @@ async def create_movie(
     actors = []
     for actor_name in movie_schema.actors:
         actor_result = await db.execute(
-            select(ActorModel)
-            .where(ActorModel.name == actor_name)
+            select(ActorModel).where(ActorModel.name == actor_name)
         )
         actor = actor_result.scalar_one_or_none()
         if not actor:
@@ -164,8 +181,7 @@ async def create_movie(
     languages = []
     for language_name in movie_schema.languages:
         language_result = await db.execute(
-            select(LanguageModel)
-            .where(LanguageModel.name == language_name)
+            select(LanguageModel).where(LanguageModel.name == language_name)
         )
         language = language_result.scalar_one_or_none()
         if not language:
@@ -185,25 +201,25 @@ async def create_movie(
     if existing_movie:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A movie with the name "
-            f"'{movie_schema.name}' and "
-            f"release date '{movie_schema.date}' already exists."
+            detail=f"A movie with the name '{movie_schema.name}' "
+                   f"and release date '{movie_schema.date}' already exists."
         )
 
+    movie = MovieModel(
+        name=movie_schema.name,
+        date=movie_schema.date,
+        score=movie_schema.score,
+        overview=movie_schema.overview,
+        status=movie_schema.status,
+        budget=movie_schema.budget,
+        revenue=movie_schema.revenue,
+        country_id=country.id,
+        genres=genres,
+        actors=actors,
+        languages=languages
+    )
+
     try:
-        movie = MovieModel(
-            name=movie_schema.name,
-            date=movie_schema.date,
-            score=movie_schema.score,
-            overview=movie_schema.overview,
-            status=movie_schema.status,
-            budget=movie_schema.budget,
-            revenue=movie_schema.revenue,
-            country_id=country.id,
-            genres=genres,
-            actors=actors,
-            languages=languages
-        )
         db.add(movie)
         await db.commit()
     except IntegrityError:
@@ -245,8 +261,17 @@ async def partial_update_movie(
         movie_schema: MovieUpdateSchema,
         db: AsyncSession = Depends(get_db)
 ):
+    try:
+        movie_schema = MovieUpdateSchema.model_validate(movie_schema)
+    except ValidationError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid input data."
+        )
+
     movie = await get_movie_by_id(movie_id, db)
     update_data = movie_schema.model_dump(exclude_unset=True)
+
     for key, value in update_data.items():
         setattr(movie, key, value)
     await db.commit()

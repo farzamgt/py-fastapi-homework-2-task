@@ -1,7 +1,8 @@
 from datetime import date, timedelta
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, constr
+
 
 from database.models import MovieStatusEnum
 
@@ -61,21 +62,17 @@ class MovieCreateRequestSchema(BaseModel):
     status: MovieStatusEnum
     budget: float = Field(ge=0)
     revenue: float = Field(ge=0)
-    country: str = Field(
-        min_length=2,
-        max_length=3
-    )
+    country: constr(min_length=3, max_length=3)
     genres: list[str]
     actors: list[str]
     languages: list[str]
 
-    @field_validator("date")
+    @field_validator("country")
     @classmethod
-    def date_not_too_far(cls, value: date) -> date:
-        if value > date.today() + timedelta(days=365):
-            raise ValueError(
-                "Date must not be more than one year in the future"
-            )
+    def validate_country_code(cls, value: str) -> str:
+        value = value.upper()
+        if not value.isalpha() or len(value) != 3:
+            raise ValueError("Invalid country code")
         return value
 
 
@@ -85,7 +82,7 @@ class MovieDetailSchema(BaseModel):
     date: date
     score: float
     overview: str
-    status: str
+    status: MovieStatusEnum
     budget: float
     revenue: float
     country: CountrySchema
@@ -108,8 +105,8 @@ class MovieUpdateSchema(BaseModel):
     @field_validator("date")
     @classmethod
     def date_not_too_far(cls, value: date) -> date:
+        if value is None:  # short-circuit for partial updates
+            return value
         if value > date.today() + timedelta(days=365):
-            raise ValueError(
-                "Date must not be more than one year in the future"
-            )
+            raise ValueError("Date must not be more than one year in the future")
         return value
